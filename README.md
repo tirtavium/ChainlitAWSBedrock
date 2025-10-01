@@ -26,8 +26,8 @@ Follow along on Medium as we take you through the step-by-step process of buildi
 ## Installation guide
 
 
-1. Clone the repository: https://github.com/rivaci/ai-companion-odissey.git
-2. Navigate to the project directory ai-companion-odissey/part1-birth
+1. Clone the repository: https://github.com/tirtavium/ChainlitAWSBedrock.git
+2. Navigate to the project directory /part1-birth
 3. Install dependencies
 
     > [NOTE]
