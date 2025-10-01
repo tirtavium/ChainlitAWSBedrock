@@ -1,0 +1,31 @@
+{
+    "agentAliasSummaries": [
+        {
+            "agentAliasId": "EJ8UDKFOR8",
+            "agentAliasName": "agent-ai-insurance-v01",
+            "routingConfiguration": [
+                {
+                    "agentVersion": "1"
+                }
+            ],
+            "agentAliasStatus": "PREPARED",
+            "createdAt": "2025-09-16T13:55:30.427338+00:00",
+            "updatedAt": "2025-09-16T13:55:30.427338+00:00",
+            "aliasInvocationState": "ACCEPT_INVOCATIONS"
+        },
+        {
+            "agentAliasId": "TSTALIASID",
+            "agentAliasName": "AgentTestAlias",
+            "description": "Test Alias for Agent",
+            "routingConfiguration": [
+                {
+                    "agentVersion": "DRAFT"
+                }
+            ],
+            "agentAliasStatus": "PREPARED",
+            "createdAt": "2025-09-13T06:48:54.612334+00:00",
+            "updatedAt": "2025-09-13T06:48:54.612334+00:00",
+            "aliasInvocationState": "ACCEPT_INVOCATIONS"
+        }
+    ]
+}

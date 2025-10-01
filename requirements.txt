@@ -1,0 +1,5 @@
+chainlit==1.2.0
+ipython==8.27.0
+langchain-aws==0.2.33
+langgraph==0.6.
+boto3>=1.35.0
