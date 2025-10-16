@@ -30,7 +30,22 @@ async def main(message: cl.Message):
     # Invoke the LangGraph flow to get the assistant's response
     thread_id = cl.user_session.get("id")
     config = {"configurable": {"thread_id": thread_id }}
-    input_message = HumanMessage(content=message.content)
+    
+    # Create input message with file attachments if present
+    additional_kwargs = {}
+    if message.elements:
+        files = []
+        for element in message.elements:
+            if hasattr(element, 'path') and element.path:
+                files.append({
+                    'path': element.path,
+                    'name': element.name if hasattr(element, 'name') else None,
+                    'mime': element.mime if hasattr(element, 'mime') else None
+                })
+        if files:
+            additional_kwargs['files'] = files
+    
+    input_message = HumanMessage(content=message.content, additional_kwargs=additional_kwargs)
     final_state = flow.invoke({"messages" : [input_message]}, config)
     content = final_state["messages"][-1].content
 
