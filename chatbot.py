@@ -8,18 +8,18 @@ from langchain_core.messages import HumanMessage
 def set_starters():
     return [
         cl.Starter(
-            label="Tell me something interesting !",
-            message="Give me an interesting fact about history or science.",
+            label="What I need to do in first 5 days",
+            message="Give me the process of on boarding employee in first 5 days.",
             icon="/public/idea.svg"
         ),
         cl.Starter(
-            label="What is quantum computing?",
-            message="Explain what quantum computing is in simple terms.",
+            label="How to create new REST API in bank project?",
+            message="How to create new REST API in account service bank account provide link.",
             icon="/public/idea.svg"
         ),
         cl.Starter(
-            label="Explain photosynthesis",
-            message="Can you explain how photosynthesis works? Include the key steps in the process.",
+            label="How to create new requirement in bank project",
+            message="Explain how to create new story in Jira.",
             icon="/public/idea.svg"
         )
     ]

@@ -2,7 +2,7 @@ import argparse
 from langgraph.graph import StateGraph, MessagesState
 #from langchain_aws import ChatBedrockConverse
 from langgraph.checkpoint.memory import MemorySaver
-from utils import save_graph_to_file, upload_pdf_to_s3
+from utils import save_graph_to_file, convert_pdf_to_markdown, upload_markdown_and_sync_kb
 from langchain_aws.agents import BedrockAgentsRunnable
 
 
@@ -52,30 +52,59 @@ def generate_answer(state: MessagesState):
     user_messages = state["messages"]
     last_message = user_messages[-1]
     
-    # Check for PDF files in the message
-    pdf_s3_uris = []
+    # Check for PDF files in the message and convert to markdown
+    pdf_markdown_content = []
+    
+   
     if hasattr(last_message, 'additional_kwargs') and 'files' in last_message.additional_kwargs:
         files = last_message.additional_kwargs['files']
         for file_info in files:
             if isinstance(file_info, dict) and 'path' in file_info:
                 file_path = file_info['path']
                 if file_path.lower().endswith('.pdf'):
-                    print(f">> Detected PDF file: {file_path}")
-                    s3_uri = upload_pdf_to_s3(file_path)
-                    if s3_uri:
-                        pdf_s3_uris.append(s3_uri)
-    
+                        print(f">> Detected PDF file: {file_path}")
+                        markdown_text = convert_pdf_to_markdown(file_path)
+                        if markdown_text:
+                            file_name = file_info.get('name', 'Unknown PDF')
+                            pdf_markdown_content.append({
+                                'file_name': file_name,
+                                'content': markdown_text
+                            })
+                            print(f">> PDF converted to markdown: {file_name}")
+                            
+                            # Upload markdown to S3 and sync knowledge base only if message contains save keywords
+                            message_lower = last_message.content.lower() if last_message.content else ""
+                            if "save the file" in message_lower or "save file" in message_lower:
+                                knowledge_base_id = 'KALBYLJM4N'
+                                data_source_id = 'DFG01BWHSR'
+                                print(f">> 'Save file' detected - uploading to S3 and syncing knowledge base")
+                                result = upload_markdown_and_sync_kb(
+                                    markdown_text, 
+                                    file_name, 
+                                    knowledge_base_id, 
+                                    data_source_id
+                                )
+                                if result:
+                                    print(f">> Successfully uploaded and synced: {result['s3_uri']}")
+                                else:
+                                    print(f">> Warning: Upload/sync failed for {file_name}")
+                            else:
+                                print(f">> PDF converted but not saved (no 'save file' keyword in message)")
+
     # invoke agent with conversation history
     print(">> Sending to Bedrock:", repr(user_messages))
     print(">> Sending to Bedrock:", repr(last_message.content))
     print(">> Sending to Bedrock:", repr(last_message.id))
     
-    # Add PDF upload info to the message content if PDFs were uploaded
+    # Add PDF markdown content to the message if PDFs were converted
     message_content = last_message.content
-    if pdf_s3_uris:
-        pdf_info = "\n\n[PDFs uploaded to S3: " + ", ".join(pdf_s3_uris) + "]"
-        message_content = message_content + pdf_info
-        print(f">> PDFs uploaded: {pdf_s3_uris}")
+    if pdf_markdown_content:
+        pdf_sections = []
+        for pdf_data in pdf_markdown_content:
+            pdf_section = f"\n\n--- Content from PDF: {pdf_data['file_name']} ---\n{pdf_data['content']}\n--- End of PDF content ---"
+            pdf_sections.append(pdf_section)
+        message_content = message_content + "".join(pdf_sections)
+        print(f">> Added {len(pdf_markdown_content)} PDF(s) as markdown to the message")
     
     response = model.invoke({"input": message_content})
     #response2 = model.invoke(state["messages"])
