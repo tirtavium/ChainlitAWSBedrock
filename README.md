@@ -77,7 +77,8 @@ Follow along on Medium as we take you through the step-by-step process of buildi
     region = us-east-1
     output = json
     ```
-
+    
+.venv\Scripts\activate
 
 5. Start the project
 
