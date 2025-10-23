@@ -268,3 +268,224 @@ def sync_bedrock_knowledge_base(knowledge_base_id, data_source_id, profile_name=
     except Exception as e:
         print(f"Unexpected error syncing knowledge base: {e}")
         return None
+
+# Detect GitHub URLs in text
+def detect_github_url(text):
+    """
+    Detect GitHub repository URLs in text
+    
+    Args:
+        text: Text content to search for GitHub URLs
+    
+    Returns:
+        list: List of GitHub URLs found or empty list
+    """
+    import re
+    
+    if not text:
+        return []
+    
+    # Pattern to match GitHub repository URLs
+    github_patterns = [
+        r'https?://github\.com/[\w\-\.]+/[\w\-\.]+',
+        r'github\.com/[\w\-\.]+/[\w\-\.]+'
+    ]
+    
+    urls = []
+    for pattern in github_patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            # Ensure URL has https://
+            if not match.startswith('http'):
+                match = f'https://{match}'
+            # Remove trailing slashes and .git
+            match = match.rstrip('/').replace('.git', '')
+            if match not in urls:
+                urls.append(match)
+    
+    return urls
+
+# Convert GitHub repository to markdown by parsing Python files
+def convert_github_repo_to_markdown(repo_url, temp_dir=None):
+    """
+    Clone a GitHub repository and convert it to markdown format by parsing Python files
+    and extracting all classes with their methods and docstrings
+    
+    Args:
+        repo_url: GitHub repository URL
+        temp_dir: Optional temporary directory to clone into
+    
+    Returns:
+        str: Markdown content of the repository or None if conversion failed
+    """
+    import os
+    import tempfile
+    import shutil
+    import subprocess
+    import ast
+    from pathlib import Path
+    
+    temp_dir_created = False
+    
+    def extract_classes_from_file(file_path):
+        """Extract all classes from a Python file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            classes = []
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    class_info = {
+                        'name': node.name,
+                        'docstring': ast.get_docstring(node) or '',
+                        'methods': [],
+                        'bases': [base.id if isinstance(base, ast.Name) else str(base) for base in node.bases]
+                    }
+                    
+                    # Extract methods
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            method_info = {
+                                'name': item.name,
+                                'docstring': ast.get_docstring(item) or '',
+                                'args': [arg.arg for arg in item.args.args]
+                            }
+                            class_info['methods'].append(method_info)
+                    
+                    classes.append(class_info)
+            
+            return classes
+        except Exception as e:
+            print(f"Error parsing {file_path}: {e}")
+            return []
+    
+    def generate_markdown(repo_name, repo_url, files_data):
+        """Generate markdown documentation from parsed data"""
+        md = f"# Repository: {repo_name}\n\n"
+        md += f"**Source:** {repo_url}\n\n"
+        md += "---\n\n"
+        md += "## Table of Contents\n\n"
+        
+        # Generate TOC
+        for file_path, classes in files_data.items():
+            if classes:
+                md += f"- [{file_path}](#{file_path.replace('/', '').replace('.', '').replace('_', '-')})\n"
+                for cls in classes:
+                    md += f"  - [{cls['name']}](#{cls['name'].lower()})\n"
+        
+        md += "\n---\n\n"
+        
+        # Generate detailed documentation
+        for file_path, classes in files_data.items():
+            if not classes:
+                continue
+            
+            md += f"## File: `{file_path}`\n\n"
+            
+            for cls in classes:
+                md += f"### Class: `{cls['name']}`\n\n"
+                
+                # Base classes
+                if cls['bases']:
+                    md += f"**Inherits from:** {', '.join(cls['bases'])}\n\n"
+                
+                # Class docstring
+                if cls['docstring']:
+                    md += f"**Description:**\n\n{cls['docstring']}\n\n"
+                
+                # Methods
+                if cls['methods']:
+                    md += "**Methods:**\n\n"
+                    for method in cls['methods']:
+                        args_str = ', '.join(method['args'])
+                        md += f"#### `{method['name']}({args_str})`\n\n"
+                        if method['docstring']:
+                            md += f"{method['docstring']}\n\n"
+                        else:
+                            md += "*No documentation available*\n\n"
+                
+                md += "---\n\n"
+        
+        return md
+    
+    try:
+        # Use permanent directory if not provided
+        if temp_dir is None:
+            repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+            base_dir = r'C:\Users\tirta.gunawan\Documents\GitHub\savedRepo'
+            os.makedirs(base_dir, exist_ok=True)
+            temp_dir = os.path.join(base_dir, repo_name)
+            temp_dir_created = False  # Don't delete permanent directory
+            
+            # Remove existing directory if it exists
+            if os.path.exists(temp_dir):
+                print(f"Removing existing directory: {temp_dir}")
+                shutil.rmtree(temp_dir)
+        
+        print(f"Cloning repository: {repo_url}")
+        
+        # Clone the repository
+        clone_result = subprocess.run(
+            ['git', 'clone', '--depth', '1', repo_url, temp_dir],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if clone_result.returncode != 0:
+            print(f"Error cloning repository: {clone_result.stderr}")
+            if temp_dir_created and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            return None
+        
+        print(f"Repository cloned successfully to {temp_dir}")
+        
+        # Find all Python files
+        print("Parsing Python files and extracting classes...")
+        python_files = list(Path(temp_dir).rglob('*.py'))
+        
+        files_data = {}
+        for py_file in python_files:
+            relative_path = str(py_file.relative_to(temp_dir))
+            classes = extract_classes_from_file(py_file)
+            if classes:
+                files_data[relative_path] = classes
+        
+        # Generate markdown
+        repo_name = repo_url.rstrip('/').split('/')[-1].replace('.git', '')
+        markdown_text = generate_markdown(repo_name, repo_url, files_data)
+        
+        # Keep the cloned repository (no cleanup for permanent directory)
+        if not temp_dir_created:
+            print(f"Repository saved at: {temp_dir}")
+        else:
+            # Clean up only if using custom temp directory
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                print(f"Warning: Could not clean up temp directory: {e}")
+        
+        print(f"Repository converted to markdown: {len(markdown_text)} characters")
+        print(f"Found {sum(len(classes) for classes in files_data.values())} classes")
+        return markdown_text
+        
+    except subprocess.TimeoutExpired as e:
+        print(f"Error: Operation timed out - {e}")
+        if temp_dir_created and temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        return None
+    except FileNotFoundError as e:
+        print(f"Error: Required command not found - {e}")
+        print("Please ensure git is installed: https://git-scm.com/downloads")
+        if temp_dir_created and temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        return None
+    except Exception as e:
+        print(f"Error converting repository to markdown: {e}")
+        if temp_dir_created and temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        return None

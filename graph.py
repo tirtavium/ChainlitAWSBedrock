@@ -2,8 +2,10 @@ import argparse
 from langgraph.graph import StateGraph, MessagesState
 #from langchain_aws import ChatBedrockConverse
 from langgraph.checkpoint.memory import MemorySaver
-from utils import save_graph_to_file, convert_pdf_to_markdown, upload_markdown_and_sync_kb
+from utils import save_graph_to_file, convert_pdf_to_markdown, upload_markdown_and_sync_kb, detect_github_url, convert_github_repo_to_markdown
 from langchain_aws.agents import BedrockAgentsRunnable
+import chainlit as cl
+import asyncio
 
 
 
@@ -44,6 +46,15 @@ model = BedrockAgentsRunnable(
 # )
 
 
+# Helper function to send loading message
+async def send_loading_message(message: str):
+    """Send a loading message to Chainlit UI"""
+    try:
+        msg = cl.Message(content=message)
+        await msg.send()
+    except Exception as e:
+        print(f"Could not send loading message: {e}")
+
 # Define the function that generates the assistant response
 # def generate_answer(state: MessagesState):
 #     return {"messages": [model.invoke(state["messages"])]}
@@ -54,6 +65,9 @@ def generate_answer(state: MessagesState):
     
     # Check for PDF files in the message and convert to markdown
     pdf_markdown_content = []
+    
+    # Check for GitHub URLs in the message and convert to markdown
+    github_markdown_content = []
     
    
     if hasattr(last_message, 'additional_kwargs') and 'files' in last_message.additional_kwargs:
@@ -74,7 +88,7 @@ def generate_answer(state: MessagesState):
                             
                             # Upload markdown to S3 and sync knowledge base only if message contains save keywords
                             message_lower = last_message.content.lower() if last_message.content else ""
-                            if "save the file" in message_lower or "save file" in message_lower:
+                            if "save" in message_lower or "save file" in message_lower:
                                 knowledge_base_id = 'KALBYLJM4N'
                                 data_source_id = 'DFG01BWHSR'
                                 print(f">> 'Save file' detected - uploading to S3 and syncing knowledge base")
@@ -86,10 +100,58 @@ def generate_answer(state: MessagesState):
                                 )
                                 if result:
                                     print(f">> Successfully uploaded and synced: {result['s3_uri']}")
+                                    return {"messages": [ f"Successfully uploaded and synced: {result['s3_uri']}"]}
                                 else:
                                     print(f">> Warning: Upload/sync failed for {file_name}")
+                                    return {"messages": [ f"Failed to upload and sync: {file_name}"]}
                             else:
                                 print(f">> PDF converted but not saved (no 'save file' keyword in message)")
+    
+    # Check for GitHub URLs in the message content
+    message_content_text = last_message.content if last_message.content else ""
+    github_urls = detect_github_url(message_content_text)
+    
+    if github_urls:
+        print(f">> Detected {len(github_urls)} GitHub URL(s): {github_urls}")
+        for repo_url in github_urls:
+            print(f">> Processing GitHub repository: {repo_url}")
+            markdown_text = convert_github_repo_to_markdown(repo_url)
+            if markdown_text:
+                repo_name = repo_url.split('/')[-1]
+                github_markdown_content.append({
+                    'repo_name': repo_name,
+                    'repo_url': repo_url,
+                    'content': markdown_text
+                })
+                print(f">> GitHub repository converted to markdown: {repo_name}")
+                
+                # Upload markdown to S3 and sync knowledge base if save keywords are present
+                message_lower = message_content_text.lower()
+                if "save" in message_lower or "save file" in message_lower or "save repo" in message_lower or "save the repo" in message_lower:
+                    knowledge_base_id = 'KALBYLJM4N'
+                    data_source_id = 'XCXWMKTBNA'
+                    # Use different S3 bucket for GitHub repositories
+                    github_bucket = 'ai-agent-knowlege-code-repository'
+                    print(f">> 'Save' keyword detected - uploading to S3 bucket: {github_bucket}")
+                    
+    
+                    result = upload_markdown_and_sync_kb(
+                        markdown_text, 
+                        f"{repo_name}.md", 
+                        knowledge_base_id, 
+                        data_source_id,
+                        bucket_name=github_bucket
+                    )
+                    if result:
+                        print(f">> Successfully uploaded and synced: {result['s3_uri']}")
+                        return {"messages": [ f"Successfully uploaded and synced: {result['s3_uri']}"]}
+                    else:
+                        print(f">> Warning: Upload/sync failed for {repo_name}")
+                        return {"messages": [ f"Failed to upload and sync: {repo_name}"]}
+                else:
+                    print(f">> GitHub repo converted but not saved (no 'save' keyword in message)")
+            else:
+                print(f">> Warning: Failed to convert GitHub repository: {repo_url}")
 
     # invoke agent with conversation history
     print(">> Sending to Bedrock:", repr(user_messages))
@@ -105,6 +167,15 @@ def generate_answer(state: MessagesState):
             pdf_sections.append(pdf_section)
         message_content = message_content + "".join(pdf_sections)
         print(f">> Added {len(pdf_markdown_content)} PDF(s) as markdown to the message")
+    
+    # Add GitHub repository markdown content to the message if repos were converted
+    if github_markdown_content:
+        github_sections = []
+        for repo_data in github_markdown_content:
+            github_section = f"\n\n--- Content from GitHub Repository: {repo_data['repo_name']} ({repo_data['repo_url']}) ---\n{repo_data['content']}\n--- End of GitHub repository content ---"
+            github_sections.append(github_section)
+        message_content = message_content + "".join(github_sections)
+        print(f">> Added {len(github_markdown_content)} GitHub repo(s) as markdown to the message")
     
     response = model.invoke({"input": message_content})
     #response2 = model.invoke(state["messages"])
